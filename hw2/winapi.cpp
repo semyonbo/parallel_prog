@@ -53,7 +53,7 @@ int main(){
         );
 
         if (!threads[i]){
-            cerr << "Error while creating {} thread" << i << "thread"<<endl;
+            cerr << "Error while creating " << i << "thread"<<endl;
         }
     }
 

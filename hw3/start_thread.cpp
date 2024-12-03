@@ -1,6 +1,5 @@
 #include <iostream>
 #include <vector>
-#include <random>
 #include <thread>
 #include <mutex>
 #include <atomic>
@@ -15,23 +14,23 @@ class DynamicThreadSum
 {
 public:
     DynamicThreadSum();
-        ~DynamicThreadSum();
+    ~DynamicThreadSum();
     void start();
     void stop();
-    void add(int value);
-    void remove(int value);
+    void add(uint64_t value);
+    void remove(uint64_t value);
 
 private:
     void run();
-    int sum();
-    vector<int> data;
+    atomic<uint64_t> sum =0;
+    vector<uint64_t> data;
     mutex dataMutex;
     condition_variable cv;
     thread worker;
     bool stopRequested;
 };
 
-DynamicThreadSum::DynamicThreadSum() : stopRequested(false) {}
+DynamicThreadSum::DynamicThreadSum() : stopRequested(true) {}
 
 DynamicThreadSum::~DynamicThreadSum()
 {
@@ -40,79 +39,95 @@ DynamicThreadSum::~DynamicThreadSum()
 
 void DynamicThreadSum::start()
 {
-    if (worker.joinable()){
+    if (!stopRequested)
+    {
         return;
     }
+    cout << "started "<<endl;
     stopRequested = false;
     worker = thread(&DynamicThreadSum::run, this);
 }
 
-void DynamicThreadSum::stop(){
-    {
-        lock_guard<mutex> lock(dataMutex);
-        stopRequested = true;
+void DynamicThreadSum::stop()
+{
+    if (stopRequested){
+        return;
     }
+    stopRequested = true;
     cv.notify_all();
-    if (worker.joinable()){
+    if (worker.joinable())
+    {
         worker.join();
     }
+    cout<<"stopped "<<endl;
 }
 
-void DynamicThreadSum::add(int value)
+void DynamicThreadSum::add(uint64_t value)
 {
     lock_guard<mutex> lock(dataMutex);
     data.push_back(value);
-    cv.notify_all();
+    sum += value;
+    cout<<"added "<<value <<endl;
+    //cv.notify_all();
 }
 
-void DynamicThreadSum::remove(int value)
+void DynamicThreadSum::remove(uint64_t value)
 {
     lock_guard<mutex> lock(dataMutex);
-    data.erase(std::remove(data.begin(), data.end(), value), data.end());
-    cv.notify_all();
+    auto elemen_id = find(data.begin(), data.end(), value);
+    if (elemen_id != data.end())
+    {
+        sum -= value;
+        data.erase(elemen_id);
+        cout<<"removed "<<value<<endl;
+    }
+    //cv.notify_all();
 }
 
 void DynamicThreadSum::run()
 {
-    while (true)
+    std::mutex m;
+
+    while (!stopRequested)
     {
+        //unique_lock<mutex> lock(m);
         unique_lock<mutex> lock(dataMutex);
-        cv.wait_for(lock, chrono::seconds(5), [this] { return stopRequested; });
-        
-        if (stopRequested)
+        cv.wait_for(lock, chrono::seconds(5), [this]
+                    { return stopRequested; });
+
+        // if (stopRequested)
+        // {
+        //     break;
+        // }
+
+        auto current_time = chrono::system_clock::now();
+        time_t time = chrono::system_clock::to_time_t(current_time);
+
+        cout << "Current time: " << ctime(&time)
+             << "Sum: " << sum.load() << endl;
+
+        cout << "Data: [";
+        //unique_lock<mutex> lock(dataMutex);
+        for (size_t i = 0; i < data.size(); ++i)
         {
-            break;
+            cout << data[i];
+            if (i < data.size() - 1)
+            {
+                cout << ", ";
+            }
         }
-
-        auto current_time = std::chrono::system_clock::now();
-        std::time_t time = std::chrono::system_clock::to_time_t(current_time);
-
-        std::cout << "Current time: " << std::ctime(&time)
-                  << "Sum: " << sum() << std::endl;
+        cout << "]" << endl;
     }
-}
-
-int DynamicThreadSum::sum()
-{
-    lock_guard<mutex> lock(dataMutex);
-    int result = 0;
-    for (int value : data)
-    {
-        result += value;
-    }
-    return result;
 }
 
 int main()
 {
     DynamicThreadSum sum;
     sum.start();
-
     sum.add(10);
-    sum.add(15);
-    this_thread::sleep_for(std::chrono::seconds(35));
-    sum.add(20);
-    sum.remove(15);
+    this_thread::sleep_for(chrono::seconds(10));
+    sum.remove(10);
+    this_thread::sleep_for(chrono::seconds(10));
     sum.stop();
     return 0;
-} 
+}
