@@ -6,70 +6,76 @@
 
 using namespace std;
 
-// Количество философов и вилок
 const int NUM_PHILOSOPHERS = 5;
 
 class DiningPhilosophers {
 public:
     DiningPhilosophers() : forks(NUM_PHILOSOPHERS) {}
 
-    // Метод философа
     void philosopher(int id) {
-        while (true) {
-            think(id);      // Размышление
-            eat(id);        // Еда
+        while (!stop_flag) {
+            think(id);
+            eat(id);
         }
+        printMessage(id, "has finished working.");
+    }
+
+    void stop(){
+        stop_flag = true;
     }
 
 private:
-    vector<mutex> forks; // Мьютексы для вилок
+    vector<mutex> forks; //вилки
+    bool stop_flag = false;
+    mutex print_mutex;
 
-    // Философ размышляет
-    void think(int id) {
-        cout << "Philosopher " << id << " is thinking." << endl;
-        this_thread::sleep_for(chrono::milliseconds(1000));
+    void printMessage(int id, const string& message) {
+        lock_guard<mutex> lock(print_mutex);
+        cout << "Philosopher " << id << " " << message << endl;
     }
 
-    // Философ ест
-    void eat(int id) {
-        int leftFork = id;                    // Левая вилка
-        int rightFork = (id + 1) % NUM_PHILOSOPHERS; // Правая вилка
+    void think(int id) {
+        printMessage(id, "is thinking.");
+        this_thread::sleep_for(chrono::seconds(2));
+    }
 
-        // Регламент: всегда сначала брать вилку с меньшим номером
+    void eat(int id) {
+        int leftFork = id;
+        int rightFork = (id + 1) % NUM_PHILOSOPHERS;
+        //начинаем с левой вилки
         if (leftFork > rightFork) {
             swap(leftFork, rightFork);
         }
 
-        // Берем вилки
-        forks[leftFork].lock();
-        cout << "Philosopher " << id << " picked up left fork " << leftFork << "." << endl;
+        forks[static_cast<size_t>(leftFork)].lock();
+        printMessage(id, "took left fork " + to_string(leftFork) + ".");
 
-        forks[rightFork].lock();
-        cout << "Philosopher " << id << " picked up right fork " << rightFork << "." << endl;
+        forks[static_cast<size_t>(rightFork)].lock();
+        printMessage(id, "took right fork " + to_string(rightFork) + ".");
 
-        // Едим
         cout << "Philosopher " << id << " is eating." << endl;
-        this_thread::sleep_for(chrono::milliseconds(1000));
+        this_thread::sleep_for(chrono::seconds(3));
 
         // Кладем вилки
-        forks[rightFork].unlock();
-        cout << "Philosopher " << id << " put down right fork " << rightFork << "." << endl;
+        forks[static_cast<size_t>(rightFork)].unlock();
+        printMessage(id, "returned right fork " + to_string(rightFork) + ".");
 
-        forks[leftFork].unlock();
-        cout << "Philosopher " << id << " put down left fork " << leftFork << "." << endl;
+        forks[static_cast<size_t>(leftFork)].unlock();
+        printMessage(id, "returned left fork " + to_string(leftFork) + ".");
     }
 };
 
 int main() {
     DiningPhilosophers table;
 
-    // Запускаем философов
     vector<thread> philosophers;
     for (int i = 0; i < NUM_PHILOSOPHERS; ++i) {
         philosophers.emplace_back(&DiningPhilosophers::philosopher, &table, i);
     }
 
-    // Ждем завершения (в данном случае потоки работают бесконечно)
+    table.stop();
+
+
     for (auto& phil : philosophers) {
         phil.join();
     }
