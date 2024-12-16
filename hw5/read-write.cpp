@@ -1,7 +1,6 @@
 #include <iostream>
 #include <thread>
-#include <mutex>
-#include <condition_variable>
+#include <shared_mutex>
 #include <vector>
 #include <string>
 #include <chrono>
@@ -9,9 +8,11 @@
 
 using namespace std;
 
+// переделал на shared_mutex!
+
 class ReadWrite {
 public:
-    ReadWrite() : alive(true), writer_active(false), has_data(false) {}
+    ReadWrite() : alive(true) {}
     ~ReadWrite() { stop(); }
     void read(int id);
     void write(int id);
@@ -19,24 +20,24 @@ public:
 
 private:
     vector<string> data;
-    mutex mtx;
-    condition_variable cv;
-    atomic<bool> alive;
-    bool writer_active;
-    bool has_data;
+    shared_mutex rw_mutex;
+    bool alive;
 };
 
 void ReadWrite::read(int id) {
     while (alive) {
-        unique_lock<mutex> lock(mtx);
-        cv.wait(lock, [this] { return (!writer_active && has_data) || !alive; }); //ждем пока никто не пишет и данные есть
-        cout << "Reader " << id << " reads: ";
-        for (const auto& info : data) {
-            cout << info << " ";
+        {
+           shared_lock<shared_mutex> lock(rw_mutex); // Разрешаем одновременное чтение
+            if (!data.empty()) {
+                cout << "Reader " << id << " reads: ";
+                for (const auto& info : data) {
+                    cout << info << " ";
+                }
+                cout << endl;
+            } else {
+                cout << "Reader " << id << " sees no data." << endl;
+            } 
         }
-        cout << endl;
-
-        lock.unlock(); // пусть другие читают
         this_thread::sleep_for(chrono::seconds(1)); // а тут отдохнем
     }
     cout << "Reader " << id << " stopped." << endl;
@@ -45,22 +46,18 @@ void ReadWrite::read(int id) {
 void ReadWrite::write(int id) {
     int count = 0;
     while (alive) {
-        unique_lock<mutex> lock(mtx);
-        cv.wait(lock, [this] { return !writer_active || !alive; }); // никто не пишет и живы
-        writer_active = true; // я пишу - всем молчать!
-        string new_data = "Data_" + to_string(id) + "_" + to_string(count++);
-        data.push_back(new_data);
-        has_data = true; // теперь есть что читать
-        cout << "Writer " << id << " wrote: " << new_data << endl;
-        writer_active = false; // надоело писать
-        lock.unlock(); // пусть другие развлекаются
+        {
+            lock_guard<shared_mutex> lock(rw_mutex); // Блокируем запись
+            string new_data = "Data_" + to_string(id) + "_" + to_string(count++);
+            data.push_back(new_data);
+            cout << "Writer " << id << " wrote: " << new_data << endl;
+        }
         this_thread::sleep_for(chrono::seconds(2)); // отдыхаем
     }
 }
 
 void ReadWrite::stop() {
     alive = false; // НАДОЕЛО ВСЁ!
-    cv.notify_all();
 }
 
 int main() {
